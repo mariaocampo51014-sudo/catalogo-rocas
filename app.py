@@ -1,68 +1,72 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image
-import os
 
 # Configuración de la página
-st.set_page_config(page_title="Geología DB", layout="wide")
+st.set_page_config(page_title="Catálogo de Rocas Pro", layout="wide", page_icon="🪨")
 
-st.title("🪨 Gestor de Muestras Geológicas")
+# --- CONEXIÓN CON TU GOOGLE SHEETS ---
+URL_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSfftWyw3WPs2AyLKMs45ISL3CnuoJ6g9i782185Zgtxa01YrxKtT7JZIrUVmvE75adawKwurAIZ6XW/pub?output=csv"
 
-# 1. Cargar o crear la base de datos
-FILE_DB = "muestras.csv"
+def cargar_datos():
+    try:
+        # Cargamos los datos desde el enlace de publicación
+        return pd.read_csv(URL_CSV)
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+        return pd.DataFrame()
 
-if os.path.exists(FILE_DB):
-    df = pd.read_csv(FILE_DB)
-else:
-    # Si no existe, creamos una estructura básica
-    df = pd.DataFrame(columns=["ID", "Nombre", "Tipo", "Lugar", "Fecha", "Imagen_URL"])
+# Cargar la base de datos
+df = cargar_datos()
 
-# --- BARRA LATERAL (FILTROS) ---
-st.sidebar.header("Filtros de Búsqueda")
-buscar = st.sidebar.text_input("Buscar por nombre o ID")
-tipo_filtro = st.sidebar.multiselect("Filtrar por Tipo", df["Tipo"].unique())
+st.title("🪨 Sistema de Gestión Geológica")
+st.markdown("---")
 
-# Aplicar filtros
-df_filtrado = df.copy()
-if buscar:
-    df_filtrado = df_filtrado[df_filtrado['Nombre'].str.contains(buscar, case=False)]
-if tipo_filtro:
-    df_filtrado = df_filtrado[df_filtrado['Tipo'].isin(tipo_filtro)]
-
-# --- CUERPO PRINCIPAL ---
-tab1, tab2 = st.tabs(["📊 Visualización y Filtros", "➕ Añadir Nuevo Registro"])
-
-with tab1:
-    st.subheader("Registros Actuales")
-    # Tabla editable: permite cambiar datos directamente
-    df_editado = st.data_editor(df_filtrado, use_container_width=True, num_rows="dynamic")
+if not df.empty:
+    # --- BARRA LATERAL (FILTROS) ---
+    st.sidebar.header("Filtros de Búsqueda")
+    busqueda = st.sidebar.text_input("Buscar por nombre de muestra o lugar")
     
-    if st.button("Guardar Cambios en la Tabla"):
-        df_editado.to_csv(FILE_DB, index=False)
-        st.success("¡Base de datos actualizada!")
+    # Aplicar filtros
+    mask = df['MUESTRA'].str.contains(busqueda, case=False, na=False) | \
+           df['LUGAR'].str.contains(busqueda, case=False, na=False)
+    df_filtrado = df[mask]
 
-with tab2:
-    st.subheader("Nuevo Registro")
-    with st.form("formulario_nuevo"):
-        col1, col2 = st.columns(2)
-        with col1:
-            nuevo_id = st.text_input("ID de la muestra")
-            nuevo_nombre = st.text_input("Nombre de la roca")
-            nuevo_tipo = st.selectbox("Tipo", ["Ígnea", "Sedimentaria", "Metamórfica", "Otro"])
-        with col2:
-            nuevo_lugar = st.text_input("Lugar de toma")
-            nueva_fecha = st.date_input("Fecha")
-            nueva_imagen = st.file_uploader("Subir Imagen", type=["jpg", "png", "jpeg"])
-        
-        enviar = st.form_submit_button("Registrar Roca")
-        
-        if enviar:
-            # Aquí podrías guardar la imagen localmente o en la nube
-            # Por ahora, simulamos el registro
-            nueva_fila = pd.DataFrame([{
-                "ID": nuevo_id, "Nombre": nuevo_nombre, "Tipo": nuevo_tipo,
-                "Lugar": nuevo_lugar, "Fecha": str(nueva_fecha), "Imagen_URL": "ver_foto"
-            }])
-            df = pd.concat([df, nueva_fila], ignore_index=True)
-            df.to_csv(FILE_DB, index=False)
-            st.success("Muestra añadida con éxito.")
+    # --- CUERPO PRINCIPAL ---
+    tab1, tab2 = st.tabs(["📊 Vista de Tabla", "🖼️ Galería de Detalles"])
+
+    with tab1:
+        st.subheader("Registros en la Base de Datos")
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        st.info(f"Se han encontrado {len(df_filtrado)} registros.")
+
+    with tab2:
+        if len(df_filtrado) > 0:
+            st.subheader("Identificación Visual")
+            # Selector para elegir qué roca ver en detalle
+            opciones = df_filtrado["MUESTRA"].tolist()
+            seleccion = st.selectbox("Selecciona una muestra para inspeccionar:", opciones)
+            
+            # Obtener datos de la fila seleccionada
+            roca = df_filtrado[df_filtrado["MUESTRA"] == seleccion].iloc[0]
+            
+            col_img, col_info = st.columns([1, 1])
+            
+            with col_img:
+                # Verificamos si hay un link de imagen y si es válido
+                url_foto = roca["IMAGEN"]
+                if pd.notna(url_foto) and str(url_foto).startswith("http"):
+                    st.image(url_foto, caption=f"Muestra: {seleccion}", use_container_width=True)
+                else:
+                    st.warning("⚠️ No hay una URL de imagen válida en Google Sheets para esta muestra.")
+            
+            with col_info:
+                st.write(f"**🔢 ID de Registro:** {roca['ID']}")
+                st.write(f"**📏 Tamaño Aproximado:** {roca['TAMAÑO']}")
+                st.write(f"**📍 Ubicación de Origen:** {roca['LUGAR']}")
+                st.write(f"**📅 Fecha de Ingreso:** {roca['FECHA']}")
+                st.info("Para actualizar estos datos, edita tu archivo de Google Sheets y refresca esta página.")
+        else:
+            st.warning("No hay muestras que coincidan con tu búsqueda.")
+
+else:
+    st.error("La base de datos está vacía o el enlace no funciona. Revisa la publicación en Google Sheets.")
