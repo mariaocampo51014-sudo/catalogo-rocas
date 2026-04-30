@@ -7,23 +7,23 @@ import datetime
 # 1. CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Catálogo Geológico Pro", layout="wide", page_icon="🪨")
 
-# 2. CONEXIÓN A GOOGLE SHEETS
+# 2. CONEXIÓN A GOOGLE SHEETS (ACTUALIZADO PARA WEB)
 def conectar_google_sheets():
-    # Permisos necesarios para Drive y Sheets
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # IMPORTANTE: Para Streamlit Cloud/GitHub, usaremos st.secrets por seguridad
-    # Si estás en local, seguirá buscando el archivo 'secretos.json'
     try:
         if "gcp_service_account" in st.secrets:
             # Configuración para la WEB (Streamlit Cloud)
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            creds_info = dict(st.secrets["gcp_service_account"])
+            # CORRECCIÓN CRÍTICA: Arregla los saltos de línea de la llave privada en la nube
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         else:
-            # Configuración para LOCAL
+            # Configuración para LOCAL (Busca tu archivo json)
             creds = ServiceAccountCredentials.from_json_keyfile_name('secretos.json', scope)
         
         client = gspread.authorize(creds)
+        # Tu ID de hoja
         sheet_id = "1joVXzX3T_MznE8xo-jMSXSoLhz-U2j9V7g9K-J1R2_c"
         spreadsheet = client.open_by_key(sheet_id)
         return spreadsheet.worksheet("BasePrueba")
@@ -37,8 +37,11 @@ worksheet = conectar_google_sheets()
 # 3. FUNCIONES DE DATOS
 def cargar_datos():
     if worksheet:
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
+        try:
+            data = worksheet.get_all_records()
+            return pd.DataFrame(data)
+        except:
+            return pd.DataFrame()
     return pd.DataFrame()
 
 df = cargar_datos()
@@ -49,7 +52,7 @@ st.markdown("---")
 
 tab_ver, tab_añadir = st.tabs(["🔍 Explorar Inventario", "➕ Registrar Muestra"])
 
-# --- PESTAÑA EXPLORAR ---
+# --- PESTAÑA 1: EXPLORAR ---
 with tab_ver:
     if not df.empty:
         st.sidebar.header("Filtros")
@@ -88,9 +91,9 @@ with tab_ver:
                 st.write(f"**🪨 Litología:** {roca['LITOLOGIA']}")
                 st.write(f"**📅 Fecha:** {roca['FECHA RECOLECCION']}")
     else:
-        st.warning("La base de datos está vacía o no se pudo conectar.")
+        st.warning("La base de datos está vacía o esperando conexión.")
 
-# --- PESTAÑA AÑADIR (CON CÁMARA PEQUEÑA AL FINAL) ---
+# --- PESTAÑA 2: AÑADIR (CAMARA AL FINAL) ---
 with tab_añadir:
     st.subheader("➕ Registrar Nueva Muestra")
     
@@ -121,7 +124,7 @@ with tab_añadir:
         
         # SECCIÓN DE FOTO PEQUEÑA AL FINAL
         st.write("📷 **Fotografía de la muestra**")
-        col_cam, col_vacia = st.columns([0.4, 0.6]) # Cámara ocupa solo el 40% del ancho
+        col_cam, col_vacia = st.columns([0.4, 0.6]) 
         with col_cam:
             img_file = st.camera_input("Capturar", label_visibility="collapsed")
         
@@ -129,8 +132,6 @@ with tab_añadir:
 
         if enviar:
             if f_gen and f_num:
-                # Nota: El archivo de imagen vive en 'img_file'. 
-                # Por ahora marcamos en el Excel que se tomó la foto.
                 foto_status = "Foto capturada" if img_file else "Sin foto"
                 
                 nueva_fila = [
